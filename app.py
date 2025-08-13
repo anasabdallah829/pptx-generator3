@@ -16,34 +16,29 @@ import streamlit.components.v1 as components
 # --- Session State Initialization ---
 
 def init_session():
-    """Initialize session state variables."""
     defaults = {
         'current_step': 1,
         'pptx_data': None,
         'slide_analysis': None,
         'placeholders_config': {},
         'processing_details': [],
-        'show_details_needed': False
+        'show_details_needed': False,
+        'selected_placeholder': None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-# --- Details Utility ---
-
 def add_detail(message, detail_type="info"):
-    """Add processing detail to session."""
     st.session_state.processing_details.append({'message': message, 'type': detail_type})
     if detail_type in ['error', 'warning']:
         st.session_state.show_details_needed = True
 
 def clear_details():
-    """Clear processing details and reset flag."""
     st.session_state.processing_details = []
     st.session_state.show_details_needed = False
 
 def show_details_section():
-    """Show expandable details section."""
     if st.session_state.processing_details:
         with st.expander("📋 تفاصيل المعالجة", expanded=False):
             for detail in st.session_state.processing_details:
@@ -56,10 +51,7 @@ def show_details_section():
                 else:
                     st.info(detail['message'])
 
-# --- PPTX Analysis ---
-
 def analyze_slide_placeholders(prs):
-    """Analyze placeholders in the first slide."""
     if len(prs.slides) == 0:
         return None
     first_slide = prs.slides[0]
@@ -116,7 +108,6 @@ def analyze_slide_placeholders(prs):
                     placeholders['text_placeholders'].append(placeholder_info)
             placeholder_id += 1
 
-    # Non-placeholder images
     for shape in first_slide.shapes:
         if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and not shape.is_placeholder:
             left_percent = clamp_percent((shape.left / slide_width) * 100)
@@ -141,14 +132,10 @@ def analyze_slide_placeholders(prs):
             placeholder_id += 1
     return placeholders
 
-# --- UI Rendering ---
-
-def render_slide_preview(slide_analysis):
-    """Show slide preview with placeholders."""
-    if not slide_analysis:
-        return
+def render_slide_preview_interactive(slide_analysis):
+    # Interactive preview: Show boxes for all placeholders with clickable buttons below
     dimensions = slide_analysis['slide_dimensions']
-    max_width = 800
+    max_width = 820
     aspect_ratio = dimensions['width'] / dimensions['height']
     display_width = max_width if aspect_ratio > 1 else max_width * aspect_ratio
     display_height = max_width / aspect_ratio if aspect_ratio > 1 else max_width
@@ -161,6 +148,7 @@ def render_slide_preview(slide_analysis):
         return left, top, width, height
 
     placeholder_html = ""
+    btns = []
     # Images
     for i, placeholder in enumerate(slide_analysis['image_placeholders']):
         left = (placeholder['left_percent'] / 100) * display_width
@@ -169,26 +157,24 @@ def render_slide_preview(slide_analysis):
         height = (placeholder['height_percent'] / 100) * display_height
         left, top, width, height = clamp_box(left, top, width, height)
         placeholder_html += f"""
-        <div style="
+        <button onclick="window.parent.postMessage({{'phType':'image','phIdx':{i}}}, '*')" style="
             position: absolute;
             left: {left}px;
             top: {top}px;
             width: {width}px;
             height: {height}px;
-            border: 2px dashed #ff6b6b;
-            background: rgba(255, 107, 107, 0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
+            border: 2px solid #ff6b6b;
+            background: rgba(255, 107, 107, 0.22);
+            font-size: 15px;
             color: #ff6b6b;
             font-weight: bold;
             border-radius: 5px;
-            z-index:3;
-            pointer-events: none;">
-            🖼️ صورة {i+1}
-        </div>
+            cursor:pointer;
+            z-index:4;
+            pointer-events: auto;
+        ">🖼️ صورة {i+1}</button>
         """
+        btns.append((f"🖼️ صورة {i+1}", ('image', i)))
     # Texts
     for i, placeholder in enumerate(slide_analysis['text_placeholders']):
         left = (placeholder['left_percent'] / 100) * display_width
@@ -197,28 +183,24 @@ def render_slide_preview(slide_analysis):
         height = (placeholder['height_percent'] / 100) * display_height
         left, top, width, height = clamp_box(left, top, width, height)
         placeholder_html += f"""
-        <div style="
+        <button onclick="window.parent.postMessage({{'phType':'text','phIdx':{i}}}, '*')" style="
             position: absolute;
             left: {left}px;
             top: {top}px;
             width: {width}px;
             height: {height}px;
-            border: 2px dashed #4ecdc4;
-            background: rgba(78, 205, 196, 0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
+            border: 2px solid #4ecdc4;
+            background: rgba(78, 205, 196, 0.18);
+            font-size: 13px;
             color: #4ecdc4;
             font-weight: bold;
             border-radius: 5px;
-            text-align: center;
-            padding: 2px;
-            z-index:3;
-            pointer-events: none;">
-            📝 نص {i+1}
-        </div>
+            cursor:pointer;
+            z-index:4;
+            pointer-events: auto;
+        ">📝 نص {i+1}</button>
         """
+        btns.append((f"📝 نص {i+1}", ('text', i)))
     # Titles
     for i, placeholder in enumerate(slide_analysis['title_placeholders']):
         left = (placeholder['left_percent'] / 100) * display_width
@@ -227,26 +209,24 @@ def render_slide_preview(slide_analysis):
         height = (placeholder['height_percent'] / 100) * display_height
         left, top, width, height = clamp_box(left, top, width, height)
         placeholder_html += f"""
-        <div style="
+        <button onclick="window.parent.postMessage({{'phType':'title','phIdx':{i}}}, '*')" style="
             position: absolute;
             left: {left}px;
             top: {top}px;
             width: {width}px;
             height: {height}px;
-            border: 2px dashed #45b7d1;
-            background: rgba(69, 183, 209, 0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            border: 2px solid #45b7d1;
+            background: rgba(69, 183, 209, 0.18);
             font-size: 13px;
             color: #45b7d1;
             font-weight: bold;
             border-radius: 5px;
-            z-index:3;
-            pointer-events: none;">
-            📋 عنوان
-        </div>
+            cursor:pointer;
+            z-index:4;
+            pointer-events: auto;
+        ">📋 عنوان {i+1}</button>
         """
+        btns.append((f"📋 عنوان {i+1}", ('title', i)))
     # Slide Frame
     html_code = f"""
     <div style="
@@ -274,95 +254,108 @@ def render_slide_preview(slide_analysis):
         </div>
         {placeholder_html}
     </div>
+    <script>
+    window.addEventListener('message', function(e) {{
+        const d = e.data;
+        if (d && d.phType && d.phIdx !== undefined) {{
+            window.parent.streamlitSendPh && window.parent.streamlitSendPh(d.phType, d.phIdx)
+        }}
+    }});
+    </script>
     """
+    # For Streamlit communication, we can't capture JS events directly, so below we use clickable buttons
     components.html(html_code, height=int(display_height)+60, scrolling=False)
+    # As fallback: Also render a grid of clickable buttons below
+    st.markdown("#### اختر موضع للتعديل:")
+    btn_cols = st.columns(3)
+    for idx, (label, tag) in enumerate(btns):
+        with btn_cols[idx % 3]:
+            if st.button(label, key=f"btn_{tag[0]}_{tag[1]}"):
+                st.session_state.selected_placeholder = tag
 
-# --- Placeholder Configuration UI ---
+def configure_selected_placeholder(analysis):
+    # Show config panel for selected placeholder only
+    selected = st.session_state.get('selected_placeholder')
+    if not selected:
+        st.info("اختر موضع Placeholder من المعاينة أو الأزرار أعلاه")
+        return
 
-def configure_image_placeholders(image_placeholders):
-    """Configure image placeholder settings."""
-    if not image_placeholders:
-        st.info("لا توجد مواضع صور في هذا القالب")
-        return {}
-    st.markdown("### 🖼️ إعدادات الصور")
-    st.info(f"تم العثور على {len(image_placeholders)} موضع صورة في القالب")
-    config = {}
-    for i, placeholder in enumerate(image_placeholders):
-        with st.expander(f"🖼️ إعداد الصورة {i+1}", expanded=True):
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                use_image = st.checkbox(
-                    f"استبدال هذه الصورة", value=True, key=f"use_image_{placeholder['id']}")
-                image_order = None
-                if use_image:
-                    image_order = st.number_input(
-                        f"ترتيب الصورة (1 = الصورة الأولى في كل مجلد)",
-                        min_value=1, max_value=20, value=i+1, key=f"image_order_{placeholder['id']}")
-            with col2:
-                st.markdown(f"""
-                **معلومات الموضع:**
-                - العرض: {placeholder['width_percent']:.1f}%
-                - الارتفاع: {placeholder['height_percent']:.1f}%
-                - الموقع: ({placeholder['left_percent']:.1f}%, {placeholder['top_percent']:.1f}%)
-                """)
-            config[f"image_{placeholder['id']}"] = {
-                'use': use_image,
-                'order': image_order,
-                'placeholder_info': placeholder
-            }
-    return config
+    ptype, idx = selected
+    if ptype == 'image':
+        ph = analysis['image_placeholders'][idx]
+        n_img_ph = len(analysis['image_placeholders'])
+        st.markdown(f"#### إعداد صورة {idx+1}")
+        use_image = st.checkbox("استبدال هذه الصورة", value=True, key=f"use_image_{ph['id']}")
+        image_order = st.number_input(
+            "ترتيب الصورة",
+            min_value=1,
+            max_value=n_img_ph,
+            value=min(idx+1, n_img_ph),
+            key=f"image_order_{ph['id']}"
+        )
+        st.markdown(f"""
+        **معلومات الموضع:**
+        - العرض: {ph['width_percent']:.1f}%
+        - الارتفاع: {ph['height_percent']:.1f}%
+        - الموقع: ({ph['left_percent']:.1f}%, {ph['top_percent']:.1f}%)
+        """)
+        # Save config
+        images_conf = st.session_state.placeholders_config.get('images', {})
+        images_conf[f"image_{ph['id']}"] = {
+            'use': use_image,
+            'order': image_order,
+            'placeholder_info': ph
+        }
+        st.session_state.placeholders_config['images'] = images_conf
 
-def configure_text_placeholders(text_placeholders):
-    """Configure text placeholder settings."""
-    if not text_placeholders:
-        st.info("لا توجد مواضع نصوص في هذا القالب")
-        return {}
-    st.markdown("### 📝 إعدادات النصوص")
-    st.info(f"تم العثور على {len(text_placeholders)} موضع نص في القالب")
-    config = {}
-    for i, placeholder in enumerate(text_placeholders):
-        with st.expander(f"📝 إعداد النص {i+1}: {placeholder['current_content']}", expanded=True):
-            fill_option = st.radio(
-                f"كيف تريد ملء هذا النص؟",
-                ("ترك فارغ", "نص ثابت", "تاريخ", "تاريخ الصورة", "اسم المجلد"),
-                key=f"text_fill_option_{placeholder['id']}",
-                index=0
+    elif ptype == 'text':
+        ph = analysis['text_placeholders'][idx]
+        st.markdown(f"#### إعداد نص {idx+1}")
+        fill_option = st.radio(
+            "كيف تريد ملء هذا النص؟",
+            ("ترك فارغ", "نص ثابت", "تاريخ", "تاريخ الصورة", "اسم المجلد"),
+            key=f"text_fill_option_{ph['id']}",
+            index=0
+        )
+        placeholder_config = {'type': fill_option, 'value': None}
+        if fill_option == "نص ثابت":
+            custom_text = st.text_input(
+                "أدخل النص المطلوب:",
+                key=f"custom_text_{ph['id']}",
+                placeholder="مثال: اسم المشروع، اسم الشركة، إلخ...")
+            placeholder_config['value'] = custom_text
+        elif fill_option == "تاريخ":
+            date_option = st.radio(
+                "اختر نوع التاريخ:",
+                ("تاريخ اليوم", "تاريخ مخصص"),
+                key=f"date_option_{ph['id']}"
             )
-            placeholder_config = {'type': fill_option, 'value': None}
-            if fill_option == "نص ثابت":
-                custom_text = st.text_input(
-                    "أدخل النص المطلوب:",
-                    key=f"custom_text_{placeholder['id']}",
-                    placeholder="مثال: اسم المشروع، اسم الشركة، إلخ...")
-                placeholder_config['value'] = custom_text
-            elif fill_option == "تاريخ":
-                date_option = st.radio(
-                    "اختر نوع التاريخ:",
-                    ("تاريخ اليوم", "تاريخ مخصص"),
-                    key=f"date_option_{placeholder['id']}"
+            if date_option == "تاريخ اليوم":
+                placeholder_config['value'] = "today"
+            else:
+                custom_date = st.date_input(
+                    "اختر التاريخ:",
+                    key=f"custom_date_{ph['id']}",
+                    value=date.today()
                 )
-                if date_option == "تاريخ اليوم":
-                    placeholder_config['value'] = "today"
-                else:
-                    custom_date = st.date_input(
-                        "اختر التاريخ:",
-                        key=f"custom_date_{placeholder['id']}",
-                        value=date.today()
-                    )
-                    placeholder_config['value'] = custom_date.strftime('%Y-%m-%d')
-            elif fill_option == "تاريخ الصورة":
-                placeholder_config['value'] = "image_date"
-                st.info("سيتم استخدام تاريخ التقاط الصورة الأولى في كل مجلد")
-            elif fill_option == "اسم المجلد":
-                placeholder_config['value'] = "folder_name"
-                st.info("سيتم استخدام اسم المجلد كنص")
-            config[f"text_{placeholder['id']}"] = placeholder_config
-    return config
+                placeholder_config['value'] = custom_date.strftime('%Y-%m-%d')
+        elif fill_option == "تاريخ الصورة":
+            placeholder_config['value'] = "image_date"
+            st.info("سيتم استخدام تاريخ التقاط الصورة الأولى في كل مجلد")
+        elif fill_option == "اسم المجلد":
+            placeholder_config['value'] = "folder_name"
+            st.info("سيتم استخدام اسم المجلد كنص")
+        texts_conf = st.session_state.placeholders_config.get('texts', {})
+        texts_conf[f"text_{ph['id']}"] = placeholder_config
+        st.session_state.placeholders_config['texts'] = texts_conf
 
-# --- Step 1: Upload ---
+    elif ptype == 'title':
+        ph = analysis['title_placeholders'][idx]
+        st.markdown(f"#### إعداد عنوان {idx+1}")
+        # Optional: Allow customizing the title text, for now just info
+        st.info("سيتم تعيين عنوان الشريحة باسم المجلد تلقائياً.")
 
 def step1_upload_pptx():
-    """Step 1: Upload PowerPoint template."""
     st.title("🔄 PowerPoint Image & Placeholder Replacer")
     st.markdown("---")
     st.markdown("### 📂 الخطوة 1: رفع ملف PowerPoint")
@@ -396,7 +389,7 @@ def step1_upload_pptx():
         - سيتم تحليل الشريحة الأولى واستخراج جميع placeholders
         #### **الخطوة 2: إعداد Placeholders**
         - ستظهر معاينة تفاعلية للشريحة مع جميع placeholders
-        - يمكنك تخصيص كل placeholder حسب احتياجاتك
+        - يمكنك تخصيص كل placeholder حسب احتياجاتك بالنقر عليه
         - للصور: اختيار الترتيب أو عدم الاستبدال
         - للنصوص: اختيار نوع المحتوى (ثابت، تاريخ، إلخ)
         #### **الخطوة 3: رفع الصور والمعالجة**
@@ -404,11 +397,8 @@ def step1_upload_pptx():
         - ابدأ المعالجة وفقاً للإعدادات المحددة
         """)
 
-# --- Step 2: Configure Placeholders ---
-
 def step2_configure_placeholders():
-    """Step 2: Configure placeholders."""
-    st.title("⚙️ إعداد Placeholders")
+    st.title("✅ ⚙️ إعداد Placeholders")
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
@@ -420,43 +410,17 @@ def step2_configure_placeholders():
             st.session_state.current_step = 3
             st.rerun()
     st.markdown("### 👁️ معاينة القالب")
-    if st.session_state.slide_analysis:
-        render_slide_preview(st.session_state.slide_analysis)
-        analysis = st.session_state.slide_analysis
-        stats_html = f"""
-        <div style="margin: 15px 0; display: flex; gap: 24px; justify-content: center;">
-            <div style="background: linear-gradient(135deg, #ffe6e6 0%, #ffd6d6 100%);
-                border-radius: 12px; padding: 20px 35px; box-shadow: 0 3px 8px rgba(255,107,107,0.08);
-                text-align: center; min-width: 140px; border: 2px solid #ff6b6b;">
-                <span style="font-size:32px;">🖼️</span>
-                <div style="font-size:22px; font-weight:bold; color:#ff6b6b;">{len(analysis['image_placeholders'])}</div>
-                <div style="font-size:15px; color:#ff6b6b;">مواضع الصور</div>
-            </div>
-            <div style="background: linear-gradient(135deg, #e6fff9 0%, #d6fff6 100%);
-                border-radius: 12px; padding: 20px 35px; box-shadow: 0 3px 8px rgba(78,205,196,0.08);
-                text-align: center; min-width: 140px; border: 2px solid #4ecdc4;">
-                <span style="font-size:32px;">📝</span>
-                <div style="font-size:22px; font-weight:bold; color:#4ecdc4;">{len(analysis['text_placeholders'])}</div>
-                <div style="font-size:15px; color:#4ecdc4;">مواضع النصوص</div>
-            </div>
-            <div style="background: linear-gradient(135deg, #e6f7ff 0%, #d6eaff 100%);
-                border-radius: 12px; padding: 20px 35px; box-shadow: 0 3px 8px rgba(69,183,209,0.08);
-                text-align: center; min-width: 140px; border: 2px solid #45b7d1;">
-                <span style="font-size:32px;">📋</span>
-                <div style="font-size:22px; font-weight:bold; color:#45b7d1;">{len(analysis['title_placeholders'])}</div>
-                <div style="font-size:15px; color:#45b7d1;">العناوين</div>
-            </div>
-        </div>
-        """
-        st.markdown(stats_html, unsafe_allow_html=True)
+    analysis = st.session_state.slide_analysis
+    if analysis:
+        render_slide_preview_interactive(analysis)
         st.markdown("---")
-        image_config = configure_image_placeholders(analysis['image_placeholders'])
-        st.session_state.placeholders_config['images'] = image_config
+        configure_selected_placeholder(analysis)
         st.markdown("---")
-        text_config = configure_text_placeholders(analysis['text_placeholders'])
-        st.session_state.placeholders_config['texts'] = text_config
+        # Show summary
         if st.checkbox("📋 عرض ملخص الإعدادات", value=False):
             st.markdown("### 📋 ملخص الإعدادات الحالية")
+            image_config = st.session_state.placeholders_config.get('images', {})
+            text_config = st.session_state.placeholders_config.get('texts', {})
             if image_config:
                 st.markdown("#### 🖼️ إعدادات الصور:")
                 for key, config in image_config.items():
@@ -478,10 +442,7 @@ def step2_configure_placeholders():
                     elif config['type'] == 'اسم المجلد':
                         st.success(f"📁 اسم المجلد: سيتم استخدام اسم كل مجلد")
 
-# --- Image Date Extraction ---
-
 def get_image_date(image_path):
-    """Extract image capture date from metadata, fallback to last modified."""
     try:
         with Image.open(image_path) as img:
             exifdata = img.getexif()
@@ -499,16 +460,12 @@ def get_image_date(image_path):
     except Exception:
         return datetime.now().strftime('%Y-%m-%d')
 
-# --- Placeholder Application ---
-
 def apply_configured_placeholders(slide, folder_path, folder_name, slide_analysis, placeholders_config):
-    """Apply user configuration to placeholders on a slide."""
     imgs = sorted(
         [f for f in os.listdir(folder_path)
          if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp'))]
     )
     image_config = placeholders_config.get('images', {})
-    image_assignments = {}
     for config_key, config in image_config.items():
         if config['use'] and config['order'] and config['order'] <= len(imgs):
             image_path = os.path.join(folder_path, imgs[config['order'] - 1])
@@ -582,10 +539,7 @@ def apply_configured_placeholders(slide, folder_path, folder_name, slide_analysi
         title_shapes[0].text = folder_name
         add_detail(f"✅ تم تحديث العنوان: {folder_name}", "success")
 
-# --- Step 3: Process Files ---
-
 def step3_process_files():
-    """Step 3: Upload ZIP and process images/slides."""
     st.title("🚀 معالجة الملفات")
     st.markdown("---")
     col1, col2 = st.columns([1, 1])
@@ -648,7 +602,6 @@ def step3_process_files():
                     with st.spinner("📦 جاري استخراج الملفات..."):
                         zip_bytes = io.BytesIO(uploaded_zip.read())
                         with zipfile.ZipFile(zip_bytes, "r") as zip_ref:
-                            # Security: Validate ZIP contents
                             for member in zip_ref.namelist():
                                 if os.path.isabs(member) or ".." in member:
                                     raise Exception("ZIP contains unsafe paths!")
@@ -752,10 +705,7 @@ def step3_process_files():
                     add_detail(f"❌ خطأ عام أثناء المعالجة: {e}", "error")
                     show_details_section()
 
-# --- Main App ---
-
 def main():
-    """Main entry point for the app."""
     st.set_page_config(
         page_title="PowerPoint Image Replacer",
         layout="wide",
